@@ -1,6 +1,7 @@
-from __future__ import annotations
 import numpy as np
 import pandas as pd
+from sklearn.feature_selection import RFE
+from lightgbm import LGBMClassifier
 
 from validation.metrics import auc_pr_macro
 
@@ -40,12 +41,28 @@ def permutation_importance(
     return pd.Series(importancias).sort_values(ascending=False)
 
 
-def select_by_importance(
-    importancias: pd.Series,
-    umbral: float = 0.0,
-) -> list[str]:
-    """
-    Devuelve features con importancia estrictamente mayor que umbral.
-    Umbral 0.0 elimina las features que no aportan o perjudican el AUC-PR.
-    """
+def select_by_importance(importancias, umbral=0.0):
+    """Devuelve features con importancia estrictamente mayor que umbral."""
     return importancias[importancias > umbral].index.tolist()
+
+
+def rfe_selection(X, y, n_features_to_select=None, step=1):
+    """
+    Selección recursiva de variables (RFE) usando LightGBM como estimador base.
+
+    Elimina en cada paso la variable menos importante según feature_importances_
+    del modelo, hasta quedarse con n_features_to_select (por defecto la mitad).
+    Devuelve la lista de features seleccionadas y el objeto RFE ajustado.
+    """
+    if n_features_to_select is None:
+        n_features_to_select = max(1, len(X.columns) // 2)
+
+    estimador = LGBMClassifier(n_estimators=100, learning_rate=0.05,
+                               num_leaves=31, random_state=42, verbose=-1)
+    selector = RFE(estimator=estimador, n_features_to_select=n_features_to_select,
+                   step=step)
+    selector.fit(X, y)
+
+    features_sel = X.columns[selector.support_].tolist()
+    ranking = pd.Series(selector.ranking_, index=X.columns).sort_values()
+    return features_sel, ranking
